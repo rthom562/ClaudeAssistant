@@ -7,10 +7,11 @@ and closes those sessions. ttyd only *attaches* to an existing session
 (claude-tab-attach), so reloading the page or reconnecting never starts a
 second Claude process, and the same tabs appear on every device.
 
-  GET  /api/tabs                 -> [{name, label, mode, created}]
+  GET  /api/tabs                 -> [{name, label, mode, state, order, custom}]
+                                    state: working | done | ended | shell
   POST /api/tabs  {"mode": m}    -> create (m = new | resume | shell)
   POST /api/tabs/<name>/close    -> end that session
-  POST /api/tabs/<name>/rename {"label": "..."}
+  POST /api/tabs/<name>/rename {"label": "..."}   ("" = automatic name again)
   POST /api/tabs/<name>/keys   {"key": "esc|tab|shift-tab|up|down|left|right|ctrl-c|enter"}
   GET  /api/info                 -> {"phone_url": "..."}
   GET  /api/qr?text=<url>        -> QR code (SVG) for an http(s) URL
@@ -21,6 +22,7 @@ form posts; Ingress already requires an authenticated HA admin session).
 import json
 import os
 import re
+import socket
 import subprocess
 import threading
 from urllib.parse import parse_qs, urlparse
@@ -31,7 +33,7 @@ CWD = "/config"
 NAME_RE = re.compile(r"^cc-[a-f0-9]{10}$")
 SKIP_PERMISSIONS = os.environ.get("CC_SKIP_PERMISSIONS") == "true"
 REMOTE_CONTROL = os.environ.get("CC_REMOTE_CONTROL") == "true"
-MODES = {"new": "New", "resume": "Resume", "shell": "Shell"}
+MODES = ("new", "resume", "shell")
 PHONE_URL = os.environ.get("CC_PHONE_URL", "").strip().rstrip("/")
 if not re.fullmatch(r"https?://[^\s/]+", PHONE_URL):
     PHONE_URL = ""
@@ -47,36 +49,75 @@ def tmux(*args):
     return subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=15)
 
 
+SEP = "\t"  # tmux escapes control characters other than tab in -F output
+FIELDS = ["name", "created", "mode", "state", "title", "custom", "custom_label",
+          "order", "pane_title", "pane_cmd"]
+FORMAT = SEP.join([
+    "#{session_name}", "#{session_created}", "#{@cc_mode}", "#{@cc_state}",
+    "#{@cc_title}", "#{@cc_custom}", "#{@cc_label}", "#{@cc_order}",
+    "#{pane_title}", "#{pane_current_command}",
+])
+BASE_LABEL = {"new": "Claude", "resume": "Resume", "shell": "Shell"}
+HOSTNAME = socket.gethostname()
+# Claude Code prefixes its terminal title with a status glyph (spinner, star).
+LEADING_JUNK = re.compile(r"^[^0-9A-Za-z\u00C0-\uFFFF]+|^[\u2800-\u28FF\u2720-\u274F\u00B7\u2022\u25CF\u25CB\u2731-\u273D*·•\s]+")
+GENERIC_TITLES = {"", "claude", "claude code", "bash", "sh", "tmux", "root", HOSTNAME.lower()}
+
+
+def clean_title(text):
+    text = re.sub(r"[\x00-\x1f\x7f]", "", text or "").strip()
+    previous = None
+    while text and text != previous:          # strip any number of leading glyphs
+        previous = text
+        text = LEADING_JUNK.sub("", text).strip()
+    if text.lower() in GENERIC_TITLES or re.match(r"^[\w.-]+@[\w.-]+", text):
+        return ""
+    return text[:60]
+
+
+def tab_label(t):
+    if t["custom"] == "1" and t["custom_label"]:
+        return t["custom_label"]                       # renamed by hand
+    if t["mode"] == "shell":
+        return BASE_LABEL["shell"]
+    # The chat's name: a /rename title or summary from the transcript (set by
+    # the state hook), else the terminal title Claude Code sets for the chat.
+    return clean_title(t["title"]) or clean_title(t["pane_title"]) or BASE_LABEL.get(t["mode"], "Claude")
+
+
+def tab_state(t):
+    if t["mode"] == "shell":
+        return "shell"
+    if t["state"] in ("working", "done", "ended"):
+        return t["state"]                    # reported by Claude Code's hooks
+    return "done"   # started, waiting for the first prompt
+
+
 def list_tabs():
-    fmt = "#{session_name}\t#{session_created}\t#{@cc_label}\t#{@cc_mode}"
-    result = tmux("list-sessions", "-F", fmt)
+    result = tmux("list-sessions", "-F", FORMAT)
     if result.returncode != 0:  # no tmux server yet = no tabs
         return []
     tabs = []
     for line in result.stdout.splitlines():
-        parts = line.split("\t")
-        if len(parts) != 4 or not NAME_RE.match(parts[0]):
+        parts = line.split(SEP)
+        if len(parts) != len(FIELDS) or not NAME_RE.match(parts[0]):
             continue
+        t = dict(zip(FIELDS, parts))
         tabs.append({
-            "name": parts[0],
-            "created": int(parts[1]) if parts[1].isdigit() else 0,
-            "label": parts[2] or parts[0],
-            "mode": parts[3] or "new",
+            "name": t["name"],
+            "created": int(t["created"]) if t["created"].isdigit() else 0,
+            "order": int(t["order"]) if t["order"].isdigit() else 0,
+            "mode": t["mode"] or "new",
+            "label": tab_label(t),
+            "state": tab_state(t),
+            "custom": t["custom"] == "1",
         })
-    def order(tab):
-        match = re.search(r"(\d+)$", tab["label"])
-        return (int(match.group(1)) if match else 10**9, tab["created"], tab["name"])
-    tabs.sort(key=order)
+    tabs.sort(key=lambda x: (x["order"], x["created"], x["name"]))
     return tabs
 
 
-def next_number():
-    highest = 0
-    for tab in list_tabs():
-        match = re.search(r"(\d+)$", tab["label"])
-        if match:
-            highest = max(highest, int(match.group(1)))
-    return highest + 1
+def next_order():
+    return max([t["order"] for t in list_tabs()] + [0]) + 1
 
 
 def claude_command(mode):
@@ -95,12 +136,15 @@ def create_tab(mode):
         raise ValueError("mode must be new, resume or shell")
     with LOCK:
         name = "cc-" + os.urandom(5).hex()
-        label = f"{MODES[mode]} {next_number()}"
+        label = BASE_LABEL[mode]
+        order = next_order()
         if mode == "shell":
             inner = "exec bash --login"
         else:
+            # "trap : INT" keeps this wrapper alive if Claude is stopped with
+            # Ctrl-C (a handler, not an ignore, so Claude still gets Ctrl-C).
             inner = (
-                f"{claude_command(mode)}; echo; "
+                f"trap : INT; {claude_command(mode)}; trap - INT; echo; "
                 "echo 'Claude Code exited. This tab is now a shell - type exit to close it.'; "
                 "exec bash --login"
             )
@@ -114,20 +158,29 @@ def create_tab(mode):
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or "tmux failed")
         target = f"={name}:"  # session target in pane syntax (set-option takes a pane)
-        tmux("set-option", "-t", target, "@cc_label", label)
         tmux("set-option", "-t", target, "@cc_mode", mode)
+        tmux("set-option", "-t", target, "@cc_order", str(order))
+        tmux("set-option", "-t", target, "@cc_state", "done" if mode != "shell" else "shell")
         tmux("set-option", "-t", target, "status", "off")  # the web UI shows tabs
-    return {"name": name, "label": label, "mode": mode}
+    return {"name": name, "label": label, "mode": mode, "order": order,
+            "state": "done" if mode != "shell" else "shell", "custom": False}
 
 
 def rename_tab(name, label):
     if not NAME_RE.match(name):
         raise ValueError("invalid tab name")
-    label = re.sub(r"[\x00-\x1f\x7f]", "", str(label or "")).strip()[:40]
+    label = re.sub(r"[\x00-\x1f\x7f]", "", str(label or "")).strip()[:60]
+    target = f"={name}:"
     if not label:
-        raise ValueError("label must not be empty")
-    tmux("set-option", "-t", f"={name}:", "@cc_label", label)
-    return {"name": name, "label": label}
+        # Empty name: go back to automatic naming (Claude / Resume / chat name).
+        tmux("set-option", "-t", target, "@cc_custom", "0")
+    else:
+        tmux("set-option", "-t", target, "@cc_label", label)
+        tmux("set-option", "-t", target, "@cc_custom", "1")
+    for tab in list_tabs():
+        if tab["name"] == name:
+            return tab
+    raise ValueError("tab not found")
 
 
 def send_key(name, key):

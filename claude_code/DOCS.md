@@ -70,7 +70,8 @@ LAN SSH client ───────►│ sshd :22  (published as host port 222
 - **Check your versions.** Settings → About shows Core, Supervisor and
   Operating System. Core versions look like `2026.11.x`; a number such as
   `3.24.3` is not a Core version, so read the "Core" line specifically. This
-  repository targets HA OS 18.x on amd64 with a current Supervisor. On Core
+  repository targets HA OS 18.x on 64-bit hardware (amd64 or aarch64) with a
+  current Supervisor. On Core
   2026.2 or newer the menu is called **Apps** (it was **Add-ons** before).
 - **Resources.** Claude Code typically uses a few hundred MB of RAM per
   session. Give the HA OS VM at least 4 GB RAM (2 GB free) and about 1.5 GB of
@@ -166,7 +167,7 @@ No API key or credential is ever put in the Dockerfile, `config.yaml` or the
 options. You sign in interactively once; the login is stored in
 `/data/home/.claude/` and survives app restarts, rebuilds and HA reboots.
 
-1. Open the **Claude Code** panel and click **New session** (or use **+ → Shell**
+1. Open the **Claude Code** panel and click **Claude** (or use **⌄ → Shell**
    and type `claude`).
 2. Choose your theme, then the login method:
    - **Claude account with subscription** (Pro/Max/Team/Enterprise), or
@@ -194,19 +195,28 @@ storage.
 
 The panel works like Windows Terminal:
 
-- **+** opens a **New session** straight away:
+- **+** opens a new **Claude** tab straight away:
   `claude --dangerously-skip-permissions --remote-control`
 - **⌄** (next to +) opens the menu:
-  - **New session**
-  - **Resume session**:
+  - **Claude** (new conversation)
+  - **Resume**:
     `claude --dangerously-skip-permissions --resume --remote-control`,
     showing the list of earlier conversations to pick from
   - **Shell**: a plain terminal (helpers, git, yamllint, …)
   (the two flags follow the `skip_permissions` / `remote_control` options)
 - Click a tab to switch; **✕** (shown on hover) or middle-click closes it.
   Claude tabs ask first; Shell tabs close at once.
-- **Double-click** a tab to rename it; **drag** tabs to reorder them; the mouse
-  wheel scrolls the tab strip when there are many.
+- **Tab names** follow the conversation. A new tab is called **Claude**, a
+  resumed one **Resume**; as soon as Claude Code names the chat (or you use
+  `/rename`), the tab takes that name. Shell tabs are called **Shell**.
+- **Live progress:** each tab's icon **pulses grey** while Claude is working
+  and turns **orange** when it's done or waiting for you, so you can see at a
+  glance which background tab has finished. A dark grey icon means Claude has
+  exited in that tab. (This uses Claude Code hooks that the app registers in
+  its managed settings.)
+- **Double-click** a tab to rename it (clear the name to go back to automatic
+  naming); **drag** tabs to reorder them; the mouse wheel scrolls the tab
+  strip when there are many.
 - **Text size:** **Auto** (default) fits the text to the window, so phones and
   wide monitors both get a sensible number of columns. **A− / A+** set a fixed
   size. Each device remembers its own choice.
@@ -216,7 +226,7 @@ The panel works like Windows Terminal:
 - When Claude exits inside a tab, the tab becomes a shell; type `exit` to
   close it.
 - Tabs end when the app restarts (or HA OS reboots). Conversations do not:
-  use **+ → Resume session** to pick them up again.
+  use **⌄ → Resume** to pick them up again.
 
 ### On your phone
 
@@ -525,7 +535,7 @@ git push -u origin main
 | `claude: command not found` | `ls -l ~/.local/bin/claude`; run `/opt/claude-code/claude install stable`, or restart the app (it re-installs if missing). |
 | Asked to sign in after every restart | Check `ls -la /data/home/.claude/.credentials.json` and `echo $HOME` (must be `/data/home`). |
 | Login URL won't copy cleanly | See [section 5](#5-signing-in-to-claude): Shift+drag, or sign in over SSH. |
-| "+ New session" does nothing / "Could not start session" | App log for `tab-service` errors; try **+ → Shell** to check the terminal works. |
+| "+" does nothing / "Could not start session" | App log for `tab-service` errors; try **⌄ → Shell** to check the terminal works. |
 | Tab says "This session has ended" | Claude/shell exited or the app restarted; close the tab (it also disappears within a few seconds). |
 | `--dangerously-skip-permissions cannot be used with root/sudo privileges` | A Claude Code update changed the root check. Set `skip_permissions: false` and restart the app; tabs then run normally with prompts. |
 | Remote Control not offered / error | Needs a Claude subscription login (not API key), a recent Claude Code (`claude update`), and on Team/Enterprise the admin toggle. Set `remote_control: false` to start tabs without it. |
@@ -573,9 +583,11 @@ Your `/config` is not affected.
 - **Guardrails vs hard limits.** `read_only` and `protect_secrets` limit
   Claude's tools, not shell commands you approve. Use the read-only map for a
   hard guarantee.
-- **Tabs end on app restart.** Conversations do not — use **Resume session**.
-- **amd64 only** as configured. Claude Code also supports aarch64; add it to
-  `arch:` if you ever move to an ARM device.
+- **Tabs end on app restart.** Conversations do not — use **⌄ → Resume**.
+- **64-bit only:** amd64 (Intel/AMD PCs and VMs) and aarch64 (Raspberry Pi
+  4/5, Home Assistant Green/Yellow). 32-bit systems (armv7, armhf, i386) are
+  not supported by Claude Code. On a Raspberry Pi, use a model with at least
+  4 GB RAM and expect the first build to take noticeably longer (15–30 min).
 - **Resource limits.** Home Assistant apps cannot set CPU/RAM limits in
   `config.yaml`; usage is mostly idle except while Claude is working.
 - **Default AppArmor profile** from the Supervisor applies; no custom profile is
@@ -585,7 +597,7 @@ Your `/config` is not affected.
 
 | Item | How it is met |
 |---|---|
-| AMD64 | `arch: [amd64]`; multi-arch Debian base resolves to amd64; Claude Code native linux-x64 build. |
+| AMD64 / ARM64 | `arch: [amd64, aarch64]`; multi-arch Debian base; Claude Code native installer picks linux-x64 or linux-arm64; ttyd release binary chosen per arch and checksum-verified. |
 | HA OS 18.x | Supervisor-built local app; no deprecated `build.yaml`; current map type `homeassistant_config`; `init: false` for s6-overlay v3. |
 | Ingress | `ingress: true`, port 8099, nginx proxies WebSockets; ttyd uses relative URLs so it works under the Ingress path. |
 | Nabu Casa | Uses the standard Ingress panel, so it rides on Remote UI with HA authentication; no extra ports. |

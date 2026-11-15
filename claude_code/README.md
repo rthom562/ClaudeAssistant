@@ -26,7 +26,9 @@ configuration.
 
 ## Features
 
-- **+** opens a new Claude session; **⌄** offers **Resume** or **Shell**
+- **+** opens a new Claude tab; **⌄** offers **Resume** or **Shell**
+- Tabs show live progress (grey pulse = working, orange = done) and take the
+  chat's name
 - Tabs keep running and sync across devices
 - Text fits the window; there's a phone QR code and a phone key bar
 - `/config` is read-only by default; secrets are protected and every file is

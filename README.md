@@ -30,7 +30,10 @@ Home Assistant OS install.
 - **In the sidebar**: a browser terminal through Home Assistant Ingress.
   Admin only, and it works remotely through Home Assistant Cloud (Nabu Casa).
 - **Tabs like Windows Terminal**
-  - **+** starts a new Claude session; **⌄** offers **New**, **Resume**, or **Shell**
+  - **+** starts a new Claude tab; **⌄** offers **Claude**, **Resume**, or **Shell**
+  - Live progress: a tab's icon pulses grey while Claude works and turns
+    orange when it's done
+  - Tabs are named after the chat (they start as "Claude" or "Resume")
   - Double-click to rename, drag to reorder, middle-click to close
   - Every tab keeps running when you close the page, and the same tabs show
     up on every device
@@ -79,7 +82,7 @@ Home Assistant OS install.
    or longer on a Raspberry Pi.
 3. On the **Info** tab, turn on **Start on boot**, **Watchdog**, and
    **Show in sidebar**, then click **Start**.
-4. Open **Claude Code** from the sidebar and click **New session**.
+4. Open **Claude Code** from the sidebar and click **+** (or **Claude**).
 5. Choose **Claude account with subscription** and open the sign-in link.
    Sign in, then paste the code back into the terminal. You only do this once.
 
@@ -120,8 +123,9 @@ authorized_keys:
 
 | In the panel | |
 |---|---|
-| **+** | New Claude session |
-| **⌄ → Resume session** | Pick an earlier conversation |
+| **+** | New Claude tab |
+| **⌄ → Resume** | Pick an earlier conversation |
+| Tab icon | Pulsing grey = working, orange = done |
 | **⌄ → Shell** | Plain terminal |
 | **A− / A+ / Auto** | Text size |
 | Phone icon | QR code for your phone |

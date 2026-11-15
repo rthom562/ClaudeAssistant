@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Claude Code hook (registered in managed settings by run.sh) that tells the
+# browser tab bar what this tab's Claude session is doing:
+#
+#   claude-tab-state working   UserPromptSubmit, PreToolUse  -> grey pulse
+#   claude-tab-state done      Stop, Notification, SessionStart -> orange
+#   claude-tab-state ended     SessionEnd
+#
+# It also records the chat's name when one exists in the transcript (a
+# /rename title or a conversation summary), so the tab can show it.
+#
+# Only acts inside a tab session (tmux session cc-xxxxxxxxxx); always exits 0
+# and prints nothing, so it can never block or disturb Claude Code.
+
+state="${1:-}"
+input="$(cat 2>/dev/null)"
+
+[ -n "${TMUX:-}" ] || exit 0
+case "${state}" in working|done|ended) ;; *) exit 0 ;; esac
+
+session="$(tmux display-message -p -t "${TMUX_PANE:-}" '#{session_name}' 2>/dev/null)" || exit 0
+[[ "${session}" =~ ^cc-[a-f0-9]{10}$ ]] || exit 0
+target="=${session}:"
+
+tmux set-option -t "${target}" @cc_state "${state}" 2>/dev/null
+
+# Chat name from the transcript (cheap: only on Stop/SessionStart = "done").
+if [ "${state}" = "done" ]; then
+    transcript="$(jq -r '.transcript_path // empty' <<<"${input}" 2>/dev/null)"
+    if [ -n "${transcript}" ] && [ -f "${transcript}" ]; then
+        title="$(grep -E '"type":[[:space:]]*"(custom-title|summary)"' "${transcript}" 2>/dev/null \
+                 | tail -n 1 \
+                 | jq -r '.customTitle // .title // .summary // empty' 2>/dev/null \
+                 | tr -d '\000-\037' | cut -c1-80)"
+        if [ -n "${title}" ]; then
+            tmux set-option -t "${target}" @cc_title "${title}" 2>/dev/null
+        fi
+    fi
+fi
+exit 0

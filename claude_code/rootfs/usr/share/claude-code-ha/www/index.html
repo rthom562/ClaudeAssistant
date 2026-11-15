@@ -42,10 +42,19 @@
     background: radial-gradient(circle at 100% 0, transparent var(--radius), var(--tab-active) calc(var(--radius) + .5px)); }
   .tab.active .foot { left: calc(-1 * var(--radius));
     background: radial-gradient(circle at 0 0, transparent var(--radius), var(--tab-active) calc(var(--radius) + .5px)); }
-  .tab .icon { flex: 0 0 auto; width: 14px; height: 14px; border-radius: 3px;
-    display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #000;
-    background: var(--accent); }
-  .tab[data-mode="shell"] .icon { background: var(--shell); }
+  /* App mark (house + prompt). Colour shows progress, like Windows Terminal:
+     pulsing grey while Claude works, orange when it's done. */
+  .mark { flex: 0 0 auto; width: 16px; height: 16px; border-radius: 4px; display: block;
+    background: var(--mark-bg, var(--accent)); color: #fff; transition: background-color .25s; }
+  .mark svg { display: block; width: 100%; height: 100%; }
+  .tab[data-state="done"] .mark { --mark-bg: var(--accent); }
+  .tab[data-state="working"] .mark { animation: working 1.1s ease-in-out infinite alternate; }
+  .tab[data-state="ended"] .mark { --mark-bg: #5c5c5c; }
+  .tab[data-state="shell"] .mark { --mark-bg: var(--shell); }
+  @keyframes working { from { background-color: #9a9a9a; } to { background-color: #404040; } }
+  @media (prefers-reduced-motion: reduce) {
+    .tab[data-state="working"] .mark { animation: none; background: #6e6e6e; }
+  }
   .tab .label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .tab .label input { width: 100%; padding: 1px 4px; border: 1px solid var(--accent-2);
     border-radius: 4px; background: #1b1b1b; color: var(--fg); font: inherit; outline: none; }
@@ -79,9 +88,7 @@
   .flyout button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 12px;
     border: 0; border-radius: 5px; background: none; text-align: left; cursor: default; }
   .flyout button:hover, .flyout button:focus-visible { background: var(--flyout-hover); outline: none; }
-  .flyout .ico { width: 16px; height: 16px; border-radius: 3px; flex: 0 0 auto; display: grid;
-    place-items: center; font-size: 10px; font-weight: 700; color: #000; background: var(--accent); }
-  .flyout .ico.shell { background: var(--shell); }
+  .flyout .mark.shell { --mark-bg: var(--shell); }
   .flyout .txt { flex: 1 1 auto; display: flex; flex-direction: column; }
   .flyout small { color: var(--muted); }
   .flyout kbd { color: var(--muted); font: inherit; }
@@ -145,7 +152,7 @@
   <div id="titlebar">
     <div id="tabs" role="tablist" aria-label="Sessions">
       <div class="split" id="split">
-        <button class="tbtn" id="new-btn" title="New session">+</button>
+        <button class="tbtn" id="new-btn" title="New Claude tab">+</button>
         <button class="tbtn" id="menu-btn" title="Open a new tab" aria-haspopup="menu" aria-expanded="false">
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
         </button>
@@ -167,10 +174,10 @@
   </div>
 
   <div id="menu" class="flyout" role="menu">
-    <button role="menuitem" data-mode="new"><span class="ico">C</span><span class="txt">New session<small>Fresh Claude Code conversation</small></span><kbd>+</kbd></button>
-    <button role="menuitem" data-mode="resume"><span class="ico">C</span><span class="txt">Resume session<small>Continue an earlier conversation</small></span></button>
+    <button role="menuitem" data-mode="new"><span class="mark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 7.6 8 3.4l5 4.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="4.3" y="6.6" width="7.4" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m6 8.5 1.3 1-1.3 1M8.4 10.6h1.6" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg></span><span class="txt">Claude<small>New Claude Code conversation</small></span><kbd>+</kbd></button>
+    <button role="menuitem" data-mode="resume"><span class="mark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 7.6 8 3.4l5 4.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="4.3" y="6.6" width="7.4" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m6 8.5 1.3 1-1.3 1M8.4 10.6h1.6" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg></span><span class="txt">Resume<small>Continue an earlier conversation</small></span></button>
     <hr>
-    <button role="menuitem" data-mode="shell"><span class="ico shell">&gt;_</span><span class="txt">Shell<small>Plain terminal</small></span></button>
+    <button role="menuitem" data-mode="shell"><span class="mark shell"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 5.5 2.5 2.5-2.5 2.5M8.5 11h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="txt">Shell<small>Plain terminal</small></span></button>
   </div>
 
   <div id="stage">
@@ -178,8 +185,8 @@
       <div class="card">
         <h1>No sessions open</h1>
         <p>Sessions keep running when you close this page.</p>
-        <button class="big" data-mode="new">New session<small>Start a fresh Claude Code conversation</small></button>
-        <button class="big" data-mode="resume">Resume session<small>Pick an earlier conversation to continue</small></button>
+        <button class="big" data-mode="new">Claude<small>Start a new Claude Code conversation</small></button>
+        <button class="big" data-mode="resume">Resume<small>Pick an earlier conversation to continue</small></button>
       </div>
     </div>
   </div>
@@ -237,6 +244,9 @@
   const menu = $("menu"), menuBtn = $("menu-btn"), splitEl = $("split");
   const tabEls = () => [...tabsEl.querySelectorAll(".tab")];
   const tabs = new Map();          // name -> { info, el, labelEl, frame }
+  const MARK_SVG = '<span class="mark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 7.6 8 3.4l5 4.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="4.3" y="6.6" width="7.4" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m6 8.5 1.3 1-1.3 1M8.4 10.6h1.6" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg></span>';
+  const SHELL_SVG = '<span class="mark shell"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 5.5 2.5 2.5-2.5 2.5M8.5 11h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>';
+  const STATE_TEXT = { working: "Working\u2026", done: "Ready", ended: "Claude exited", shell: "Shell" };
   let active = null, busy = false, dragName = null, info = { phone_url: "" };
   const isTouch = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
 
@@ -291,18 +301,13 @@
 
   /* ================= tabs ================= */
   function addTab(t) {
-    if (tabs.has(t.name)) {             // label may have been renamed elsewhere
-      const cur = tabs.get(t.name);
-      if (cur.info.label !== t.label && !cur.labelEl.querySelector("input")) {
-        cur.info.label = t.label; cur.labelEl.textContent = t.label; cur.el.title = t.label;
-      }
-      return;
-    }
+    if (tabs.has(t.name)) { updateTab(tabs.get(t.name), t); return; }
     const el = document.createElement("div");
     el.className = "tab"; el.setAttribute("role", "tab"); el.dataset.mode = t.mode; el.dataset.name = t.name;
-    el.title = t.label; el.draggable = true;
+    el.dataset.state = t.state || "done"; el.draggable = true;
     const foot = document.createElement("span"); foot.className = "foot";
-    const icon = document.createElement("span"); icon.className = "icon"; icon.textContent = t.mode === "shell" ? ">" : "C";
+    const iconWrap = document.createElement("span"); iconWrap.innerHTML = t.mode === "shell" ? SHELL_SVG : MARK_SVG;
+    const icon = iconWrap.firstChild;
     const labelEl = document.createElement("span"); labelEl.className = "label"; labelEl.textContent = t.label;
     const close = document.createElement("button"); close.className = "close"; close.title = "Close tab"; close.innerHTML = "&#x2715;";
     close.addEventListener("click", (ev) => { ev.stopPropagation(); askClose(t.name); });
@@ -335,7 +340,21 @@
     frame.src = "terminal/?arg=" + encodeURIComponent(t.name);
     frame.addEventListener("load", () => whenReady(frame));
     stage.appendChild(frame);
-    tabs.set(t.name, { info: Object.assign({}, t), el, labelEl, frame });
+    const entry = { info: Object.assign({}, t), el, labelEl, frame };
+    tabs.set(t.name, entry);
+    setTooltip(entry);
+  }
+  function setTooltip(entry) {
+    const i = entry.info;
+    entry.el.title = i.label + " \u2014 " + (STATE_TEXT[i.state] || "") + "\nDouble-click to rename";
+    entry.frame.title = i.label;
+  }
+  function updateTab(entry, t) {
+    const editing = !!entry.labelEl.querySelector("input");
+    if (!editing && entry.info.label !== t.label) { entry.info.label = t.label; entry.labelEl.textContent = t.label; }
+    if (entry.info.state !== t.state) { entry.info.state = t.state; entry.el.dataset.state = t.state; }
+    entry.info.custom = t.custom;
+    setTooltip(entry);
   }
   function clearDropMarks() { tabsEl.querySelectorAll(".drop-before,.drop-after").forEach((e) => e.classList.remove("drop-before", "drop-after")); }
   function saveOrder() { store("cc-order", tabEls().map((e) => e.dataset.name)); }
@@ -383,7 +402,8 @@
     const t = tabs.get(name);
     if (!t || t.labelEl.querySelector("input")) return;
     const input = document.createElement("input");
-    input.value = t.info.label; input.maxLength = 40;
+    input.value = t.info.label; input.maxLength = 60;
+    input.placeholder = "Automatic name";
     t.labelEl.textContent = ""; t.labelEl.appendChild(input);
     input.focus(); input.select();
     let done = false;
@@ -391,9 +411,10 @@
       if (done) return; done = true;
       const label = input.value.trim();
       t.labelEl.textContent = t.info.label;
-      if (save && label && label !== t.info.label) {
+      // An empty name switches back to automatic naming (Claude / Resume / chat name).
+      if (save && label !== t.info.label && (label || t.info.custom)) {
         try { const r = await post(API + "/" + encodeURIComponent(name) + "/rename", { label });
-              t.info.label = r.label; t.labelEl.textContent = r.label; t.el.title = r.label; t.frame.title = r.label; }
+              updateTab(t, r); }
         catch (e) { setStatus("Rename failed: " + e.message); }
       }
     };
@@ -438,7 +459,9 @@
     if (!t) return;
     if (t.info.mode === "shell") { doClose(name); return; }     // like a terminal tab: shells close at once
     pendingClose = name;
-    $("close-text").textContent = "“" + t.info.label + "” will stop. The conversation stays saved and can be resumed later.";
+    $("close-text").textContent = "“" + t.info.label + "” will stop"
+      + (t.info.state === "working" ? " — Claude is still working" : "")
+      + ". The conversation stays saved and can be resumed later.";
     $("close-dialog").classList.add("open"); $("close-ok").focus();
   }
   async function doClose(name) {
@@ -504,7 +527,7 @@
 
   api("api/info").then((r) => { info = r || info; }).catch(() => {});
   sync();
-  setInterval(sync, 4000);
+  setInterval(sync, 1500);
 })();
 </script>
 </body>

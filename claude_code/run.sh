@@ -146,12 +146,24 @@ jq -n \
     ask: (if $read_only then [] else [ "Edit(//config/**)" ] end)
   }),
   env: (if $autoupdate then {} else { DISABLE_AUTOUPDATER: "1" } end),
-  hooks: (if $backup then {
-    PreToolUse: [ {
-      matcher: "Edit|Write|MultiEdit|NotebookEdit",
-      hooks: [ { type: "command", command: "/usr/local/bin/ha-backup-hook", timeout: 30 } ]
-    } ]
-  } else {} end)
+  hooks: (
+    # Tab bar progress: grey pulse while Claude works, orange when it is done.
+    def tab_state($s): [ { hooks: [ { type: "command", command: ("/usr/local/bin/claude-tab-state " + $s), timeout: 10 } ] } ];
+    {
+      UserPromptSubmit: tab_state("working"),
+      PreToolUse: (
+        (if $backup then [ {
+          matcher: "Edit|Write|MultiEdit|NotebookEdit",
+          hooks: [ { type: "command", command: "/usr/local/bin/ha-backup-hook", timeout: 30 } ]
+        } ] else [] end)
+        + [ { matcher: "*", hooks: [ { type: "command", command: "/usr/local/bin/claude-tab-state working", timeout: 10 } ] } ]
+      ),
+      Stop: tab_state("done"),
+      Notification: tab_state("done"),
+      SessionStart: tab_state("done"),
+      SessionEnd: tab_state("ended")
+    }
+  )
 }' > "${MANAGED_DIR}/managed-settings.json"
 chmod 644 "${MANAGED_DIR}/managed-settings.json"
 echo "${CONFIG_ACCESS}" > "${MANAGED_DIR}/ha-config-access"
