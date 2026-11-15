@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""Tab service for the Claude Code browser UI.
+
+Each browser tab is a detached tmux session named "cc-<hex>". This service
+(listening on 127.0.0.1 only, reached through nginx/Ingress) lists, creates
+and closes those sessions. ttyd only *attaches* to an existing session
+(claude-tab-attach), so reloading the page or reconnecting never starts a
+second Claude process, and the same tabs appear on every device.
+
+  GET  /api/tabs                 -> [{name, label, mode, created}]
+  POST /api/tabs  {"mode": m}    -> create (m = new | resume | shell)
+  POST /api/tabs/<name>/close    -> end that session
+  POST /api/tabs/<name>/rename {"label": "..."}
+  POST /api/tabs/<name>/keys   {"key": "esc|tab|shift-tab|up|down|left|right|ctrl-c|enter"}
+  GET  /api/info                 -> {"phone_url": "..."}
+  GET  /api/qr?text=<url>        -> QR code (SVG) for an http(s) URL
+
+POST requests must carry "X-Requested-With: claude-tabs" (blocks cross-site
+form posts; Ingress already requires an authenticated HA admin session).
+"""
+import json
+import os
+import re
+import subprocess
+import threading
+from urllib.parse import parse_qs, urlparse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+LISTEN = ("127.0.0.1", 7682)
+CWD = "/config"
+NAME_RE = re.compile(r"^cc-[a-f0-9]{10}$")
+SKIP_PERMISSIONS = os.environ.get("CC_SKIP_PERMISSIONS") == "true"
+REMOTE_CONTROL = os.environ.get("CC_REMOTE_CONTROL") == "true"
+MODES = {"new": "New", "resume": "Resume", "shell": "Shell"}
+PHONE_URL = os.environ.get("CC_PHONE_URL", "").strip().rstrip("/")
+if not re.fullmatch(r"https?://[^\s/]+", PHONE_URL):
+    PHONE_URL = ""
+URL_RE = re.compile(r"^https?://[^\s]{1,600}$")
+KEYS = {
+    "esc": "Escape", "tab": "Tab", "shift-tab": "BTab", "up": "Up", "down": "Down",
+    "left": "Left", "right": "Right", "ctrl-c": "C-c", "enter": "Enter",
+}
+LOCK = threading.Lock()
+
+
+def tmux(*args):
+    return subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=15)
+
+
+def list_tabs():
+    fmt = "#{session_name}\t#{session_created}\t#{@cc_label}\t#{@cc_mode}"
+    result = tmux("list-sessions", "-F", fmt)
+    if result.returncode != 0:  # no tmux server yet = no tabs
+        return []
+    tabs = []
+    for line in result.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 4 or not NAME_RE.match(parts[0]):
+            continue
+        tabs.append({
+            "name": parts[0],
+            "created": int(parts[1]) if parts[1].isdigit() else 0,
+            "label": parts[2] or parts[0],
+            "mode": parts[3] or "new",
+        })
+    def order(tab):
+        match = re.search(r"(\d+)$", tab["label"])
+        return (int(match.group(1)) if match else 10**9, tab["created"], tab["name"])
+    tabs.sort(key=order)
+    return tabs
+
+
+def next_number():
+    highest = 0
+    for tab in list_tabs():
+        match = re.search(r"(\d+)$", tab["label"])
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return highest + 1
+
+
+def claude_command(mode):
+    args = ["claude"]
+    if SKIP_PERMISSIONS:
+        args.append("--dangerously-skip-permissions")
+    if mode == "resume":
+        args.append("--resume")
+    if REMOTE_CONTROL:
+        args.append("--remote-control")
+    return " ".join(args)
+
+
+def create_tab(mode):
+    if mode not in MODES:
+        raise ValueError("mode must be new, resume or shell")
+    with LOCK:
+        name = "cc-" + os.urandom(5).hex()
+        label = f"{MODES[mode]} {next_number()}"
+        if mode == "shell":
+            inner = "exec bash --login"
+        else:
+            inner = (
+                f"{claude_command(mode)}; echo; "
+                "echo 'Claude Code exited. This tab is now a shell - type exit to close it.'; "
+                "exec bash --login"
+            )
+        args = ["new-session", "-d", "-s", name, "-c", CWD, "-x", "200", "-y", "50"]
+        if SKIP_PERMISSIONS and mode != "shell":
+            # Claude Code refuses bypass mode as root unless it is told it
+            # runs in a sandbox. Scoped to this tab's session only.
+            args += ["-e", "IS_SANDBOX=1"]
+        args.append(inner)
+        result = tmux(*args)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "tmux failed")
+        target = f"={name}:"  # session target in pane syntax (set-option takes a pane)
+        tmux("set-option", "-t", target, "@cc_label", label)
+        tmux("set-option", "-t", target, "@cc_mode", mode)
+        tmux("set-option", "-t", target, "status", "off")  # the web UI shows tabs
+    return {"name": name, "label": label, "mode": mode}
+
+
+def rename_tab(name, label):
+    if not NAME_RE.match(name):
+        raise ValueError("invalid tab name")
+    label = re.sub(r"[\x00-\x1f\x7f]", "", str(label or "")).strip()[:40]
+    if not label:
+        raise ValueError("label must not be empty")
+    tmux("set-option", "-t", f"={name}:", "@cc_label", label)
+    return {"name": name, "label": label}
+
+
+def send_key(name, key):
+    if not NAME_RE.match(name):
+        raise ValueError("invalid tab name")
+    if key not in KEYS:
+        raise ValueError("unsupported key")
+    tmux("send-keys", "-t", f"={name}:", KEYS[key])
+
+
+def qr_svg(text):
+    if not URL_RE.match(text or ""):
+        raise ValueError("text must be an http(s) URL")
+    result = subprocess.run(
+        ["qrencode", "-t", "SVG", "-m", "2", "-l", "M", "-o", "-", text],
+        capture_output=True, timeout=10,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("qrencode failed")
+    return result.stdout
+
+
+def close_tab(name):
+    if not NAME_RE.match(name):
+        raise ValueError("invalid tab name")
+    tmux("kill-session", "-t", f"={name}")
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "claude-tabs"
+
+    def log_message(self, *args):  # no request logging
+        pass
+
+    def send_json(self, status, payload):
+        body = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        url = urlparse(self.path)
+        try:
+            if url.path == "/api/tabs":
+                self.send_json(200, list_tabs())
+            elif url.path == "/api/info":
+                self.send_json(200, {"phone_url": PHONE_URL})
+            elif url.path == "/api/qr":
+                svg = qr_svg((parse_qs(url.query).get("text") or [""])[0])
+                self.send_response(200)
+                self.send_header("Content-Type", "image/svg+xml")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(svg)))
+                self.end_headers()
+                self.wfile.write(svg)
+            else:
+                self.send_json(404, {"error": "not found"})
+        except ValueError as err:
+            self.send_json(400, {"error": str(err)})
+        except Exception as err:  # noqa: BLE001
+            self.send_json(500, {"error": str(err)})
+
+    def do_POST(self):
+        if self.headers.get("X-Requested-With") != "claude-tabs":
+            self.send_json(403, {"error": "forbidden"})
+            return
+        length = min(int(self.headers.get("Content-Length") or 0), 1024)
+        raw = self.rfile.read(length) if length else b"{}"
+        path = self.path.split("?")[0]
+        try:
+            if path == "/api/tabs":
+                mode = (json.loads(raw or b"{}") or {}).get("mode", "new")
+                self.send_json(200, create_tab(mode))
+                return
+            body = {}
+            if raw and raw.strip():
+                body = json.loads(raw) or {}
+            match = re.fullmatch(r"/api/tabs/([^/]+)/(close|rename|keys)", path)
+            if match:
+                name, action = match.groups()
+                if action == "close":
+                    close_tab(name)
+                    self.send_json(200, {"ok": True})
+                elif action == "rename":
+                    self.send_json(200, rename_tab(name, body.get("label")))
+                else:
+                    send_key(name, body.get("key"))
+                    self.send_json(200, {"ok": True})
+                return
+            self.send_json(404, {"error": "not found"})
+        except ValueError as err:
+            self.send_json(400, {"error": str(err)})
+        except Exception as err:  # noqa: BLE001
+            self.send_json(500, {"error": str(err)})
+
+
+if __name__ == "__main__":
+    ThreadingHTTPServer.daemon_threads = True
+    ThreadingHTTPServer(LISTEN, Handler).serve_forever()

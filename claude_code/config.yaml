@@ -1,0 +1,107 @@
+# Home Assistant app (formerly "add-on") configuration.
+# Schema reference: https://contributors.home-assistant.io/apps/reference/configuration/
+#
+# No "image:" key -> the Supervisor builds this app locally on your HA OS VM
+# from ./Dockerfile. No build.yaml -> it is deprecated; the base image is set
+# with a plain FROM line in the Dockerfile.
+
+name: Claude Code
+version: "1.0.0"
+slug: claude_code
+description: >-
+  Anthropic's Claude Code CLI in a tabbed, authenticated browser terminal
+  (Ingress, works through Nabu Casa) and key-only SSH, with access to your
+  Home Assistant configuration.
+url: https://github.com/rthom562/ClaudeAssistant
+
+arch:
+  - amd64
+
+# The HA Debian base image ships its own init (s6-overlay v3), so Docker's
+# init must be disabled.
+init: false
+startup: application
+boot: auto
+
+# Supervisor restarts the app if the Ingress endpoint stops accepting
+# connections (enable "Watchdog" on the app's Info page).
+watchdog: "tcp://[HOST]:[PORT:8099]"
+
+# ---- Browser terminal through Home Assistant Ingress -----------------------
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:robot-outline
+panel_title: Claude Code
+# Only Home Assistant administrators see and can open the panel.
+panel_admin: true
+
+# ---- Filesystem access ------------------------------------------------------
+# Only the Home Assistant configuration directory is mapped, at /config.
+# /data (persistent app storage) is always mounted read/write.
+# Nothing else from the host is visible: no Docker socket, no /dev, no
+# host root filesystem, no other apps' data.
+#
+# For HARD (filesystem-level) read-only access, change read_only to true,
+# bump "version" above, and rebuild the app.
+map:
+  - type: homeassistant_config
+    read_only: false
+    path: /config
+
+# ---- SSH --------------------------------------------------------------------
+# Container port 22 is published on the HA OS VM's LAN address at port 2222.
+# Change the host port (or disable it) under the app's Configuration ->
+# Network section. Never forward this port on your router.
+ports:
+  22/tcp: 2222
+ports_description:
+  22/tcp: SSH into the Claude Code container (public-key auth only, LAN only)
+
+# No Supervisor or Home Assistant API access. Claude Code therefore cannot
+# restart Home Assistant, call services, or read entity states.
+hassio_api: false
+homeassistant_api: false
+
+# ---- Backups ----------------------------------------------------------------
+backup: hot
+# Patterns are relative to /data. Caches and the downloadable Claude Code
+# binary are re-created automatically and are not worth backing up.
+backup_exclude:
+  - "home/.cache/*"
+  - "home/.npm/*"
+  - "home/.local/share/claude/versions/*"
+  - "home/.claude/statsig/*"
+
+# ---- User options -----------------------------------------------------------
+options:
+  claude_config_access: read_only
+  protect_secrets: true
+  backup_before_edit: true
+  backup_retention_days: 30
+  auto_update_claude: true
+  skip_permissions: true
+  remote_control: true
+  phone_url: ""
+  terminal_font_size: 15
+  ssh_enabled: true
+  authorized_keys: []
+  ssh_allow_forwarding: false
+  git_user_name: ""
+  git_user_email: ""
+
+schema:
+  claude_config_access: list(read_only|read_write)
+  protect_secrets: bool
+  backup_before_edit: bool
+  backup_retention_days: int(1,365)
+  auto_update_claude: bool
+  skip_permissions: bool
+  remote_control: bool
+  phone_url: str?
+  terminal_font_size: int(10,30)
+  ssh_enabled: bool
+  authorized_keys:
+    - str
+  ssh_allow_forwarding: bool
+  git_user_name: str?
+  git_user_email: str?

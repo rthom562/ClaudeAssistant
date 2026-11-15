@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Put the Home Assistant configuration (/config) under git version control.
+# Runs only when you call it, asks before doing anything, and never pushes.
+
+set -euo pipefail
+cd /config
+
+if [ -d .git ]; then
+    echo "/config is already a git repository:"
+    git status --short --branch | head -n 20
+    exit 0
+fi
+
+cat <<'EOF'
+This will:
+  1. create /config/.gitignore (only if it does not exist) that excludes
+     secrets.yaml, .storage/, databases, logs and other runtime files
+  2. run "git init" in /config
+  3. make an initial commit of the remaining files
+
+Nothing is pushed anywhere. Home Assistant is not restarted.
+EOF
+read -r -p "Type 'yes' to continue: " answer
+[ "${answer}" = "yes" ] || { echo "Cancelled."; exit 1; }
+
+if [ ! -f .gitignore ]; then
+    cat > .gitignore <<'EOF'
+# --- Never commit secrets or credentials ---
+secrets.yaml
+**/secrets.yaml
+.storage/
+.cloud/
+.ssh/
+*.pem
+*.key
+
+# --- Runtime state, databases and logs ---
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.log.*
+*.fault
+.HA_RESTORE
+.uuid
+ip_bans.yaml
+deps/
+tts/
+backups/
+__pycache__/
+.cache/
+
+# --- ESPHome build output ---
+esphome/.esphome/
+esphome/**/.pioenvs/
+esphome/**/.piolibdeps/
+
+# --- Claude Code local (per-machine) settings ---
+.claude/settings.local.json
+EOF
+    echo "Created /config/.gitignore"
+fi
+
+if [ -z "$(git config --global user.name || true)" ]; then
+    git config --global user.name "Home Assistant"
+fi
+if [ -z "$(git config --global user.email || true)" ]; then
+    git config --global user.email "homeassistant@localhost"
+fi
+
+git init -q
+git add -A
+git commit -q -m "Initial snapshot of Home Assistant configuration"
+echo
+echo "Done. Useful commands:"
+echo "  git -C /config status        what changed"
+echo "  git -C /config diff          show changes"
+echo "  git -C /config add -A && git -C /config commit -m 'message'"
+echo "  git -C /config checkout -- <file>   undo uncommitted changes to a file"
+echo
+echo "Before pushing to a remote, make sure it is PRIVATE and check that"
+echo "'git -C /config ls-files' lists no secrets."
