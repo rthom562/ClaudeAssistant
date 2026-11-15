@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Run by ttyd for each browser tab: attach to an EXISTING tab session.
+# The tab name comes from the iframe URL (?arg=cc-xxxxxxxxxx) and is
+# validated strictly; this script never creates sessions or runs commands.
+
+name="${1:-}"
+
+if [[ ! "${name}" =~ ^cc-[a-f0-9]{10}$ ]]; then
+    printf '\r\n  Open a session with the + button in the tab bar.\r\n'
+    read -r _
+    exit 0
+fi
+
+if ! tmux has-session -t "=${name}" 2>/dev/null; then
+    printf '\r\n  This session has ended. Close the tab or open a new one with +.\r\n'
+    read -r _
+    exit 0
+fi
+
+exec tmux attach-session -t "=${name}"
