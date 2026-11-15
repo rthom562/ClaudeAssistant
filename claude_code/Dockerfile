@@ -1,10 +1,11 @@
 #
-# Claude Code app for Home Assistant OS (amd64).
+# Claude Code app for Home Assistant OS (amd64 and aarch64 / ARM64).
 #
 # Debian (glibc) base image maintained by Home Assistant. It includes
 # s6-overlay v3 (/init as ENTRYPOINT), bashio and tzdata.
-# Published as a multi-arch image since docker-base 2026.03.1, so no
-# per-arch image name or build.yaml is needed.
+# Published as a multi-arch image since docker-base 2026.03.1; the Supervisor
+# builds with --platform for the machine, so no per-arch image name or
+# build.yaml is needed.
 FROM ghcr.io/home-assistant/base-debian:trixie
 
 # Supplied by the Supervisor / builder; kept for labels.
@@ -67,16 +68,22 @@ RUN apt-get update \
     && mkdir -p /run/sshd
 
 # ---------------------------------------------------------------------------
-# ttyd (browser terminal, xterm.js over WebSocket): official static amd64
-# release, verified against the release's SHA256SUMS file.
+# ttyd (browser terminal, xterm.js over WebSocket): official static release
+# for this machine's architecture, verified against the release's SHA256SUMS.
 # ---------------------------------------------------------------------------
-RUN mkdir -p /tmp/ttyd && cd /tmp/ttyd \
-    && curl -fsSL -o ttyd.x86_64 \
-        "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" \
+RUN case "${BUILD_ARCH:-$(uname -m)}" in \
+        amd64|x86_64)   TTYD_ASSET=ttyd.x86_64 ;; \
+        aarch64|arm64)  TTYD_ASSET=ttyd.aarch64 ;; \
+        *) echo "Unsupported architecture: ${BUILD_ARCH:-$(uname -m)}" >&2; exit 1 ;; \
+    esac \
+    && mkdir -p /tmp/ttyd && cd /tmp/ttyd \
+    && curl -fsSL -o "${TTYD_ASSET}" \
+        "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/${TTYD_ASSET}" \
     && curl -fsSL -o SHA256SUMS \
         "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/SHA256SUMS" \
-    && grep -E '[[:space:]]\*?ttyd\.x86_64$' SHA256SUMS | sha256sum -c - \
-    && install -m 0755 ttyd.x86_64 /usr/local/bin/ttyd \
+    && awk -v f="${TTYD_ASSET}" '{ n = $2; sub(/^\*/, "", n) } n == f' SHA256SUMS > CHECK \
+    && test -s CHECK && sha256sum -c CHECK \
+    && install -m 0755 "${TTYD_ASSET}" /usr/local/bin/ttyd \
     && /usr/local/bin/ttyd --version \
     && cd / && rm -rf /tmp/ttyd
 

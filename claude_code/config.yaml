@@ -16,6 +16,7 @@ url: https://github.com/rthom562/ClaudeAssistant
 
 arch:
   - amd64
+  - aarch64
 
 # The HA Debian base image ships its own init (s6-overlay v3), so Docker's
 # init must be disabled.
