@@ -1,5 +1,15 @@
 # ClaudeAssistant
 
+[![GitHub](https://img.shields.io/badge/GitHub-rthom562%2FClaudeAssistant-181717?logo=github)](https://github.com/rthom562/ClaudeAssistant)
+[![Version](https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fraw.githubusercontent.com%2Frthom562%2FClaudeAssistant%2Fmain%2Fclaude_code%2Fconfig.yaml&query=%24.version&label=version&color=d97757&cacheSeconds=600)](https://github.com/rthom562/ClaudeAssistant/blob/main/claude_code/CHANGELOG.md)
+[![Release](https://img.shields.io/github/v/release/rthom562/ClaudeAssistant?label=release&cacheSeconds=600)](https://github.com/rthom562/ClaudeAssistant/releases)
+[![Downloads](https://img.shields.io/github/downloads/rthom562/ClaudeAssistant/total?label=downloads&color=blue&cacheSeconds=3600)](https://github.com/rthom562/ClaudeAssistant/releases)
+[![Home Assistant OS](https://img.shields.io/badge/Home%20Assistant-OS%20app-41BDF5?logo=homeassistant&logoColor=white)](https://www.home-assistant.io/installation/)
+![amd64](https://img.shields.io/badge/amd64-yes-green)
+![aarch64](https://img.shields.io/badge/aarch64-yes-green)
+[![License: MIT](https://img.shields.io/github/license/rthom562/ClaudeAssistant)](https://github.com/rthom562/ClaudeAssistant/blob/main/LICENSE)
+[![Stars](https://img.shields.io/github/stars/rthom562/ClaudeAssistant?style=social)](https://github.com/rthom562/ClaudeAssistant/stargazers)
+
 **Run Anthropic's [Claude Code](https://code.claude.com) inside Home Assistant OS.**
 
 ClaudeAssistant is a Home Assistant app (formerly "add-on") that puts Claude Code
