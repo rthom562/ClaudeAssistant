@@ -25,6 +25,17 @@ Home Assistant OS install.
 
 ---
 
+## What's new in 1.1.0
+
+- **Live progress on tabs:** a tab's icon pulses grey while Claude works and
+  turns orange when it's done, so you can see which background tab has
+  finished.
+- **Tabs named after the chat:** tabs start as **Claude** or **Resume** and
+  take the conversation's name (or your `/rename` title).
+- **Ctrl-C** stops Claude without closing the tab.
+
+[All release notes →](https://github.com/rthom562/ClaudeAssistant/releases) · [Changelog](claude_code/CHANGELOG.md)
+
 ## Features
 
 - **In the sidebar**: a browser terminal through Home Assistant Ingress.
@@ -182,12 +193,24 @@ Use strong passwords and multi-factor authentication.
 
 ## Updating
 
-- **The app:** Home Assistant shows **Update** when a new version is
-  published here.
+- **The app:** Home Assistant shows **Update** on Claude Code when a new
+  version is published here. To check right away, go to
+  **Settings → Apps → Install app → ⋮ → Check for updates**.
 - **Claude Code:** updates itself (`auto_update_claude`), or run
   `claude update`.
 
 Your login, settings, conversations, and `/config` are kept across updates.
+Open tabs close while the app restarts; use **⌄ → Resume** to continue a
+conversation.
+
+## Releases
+
+| Version | Highlights |
+|---|---|
+| [**1.1.0**](https://github.com/rthom562/ClaudeAssistant/releases/tag/v1.1.0) | Live tab progress (grey pulse / orange), tabs named after the chat, Ctrl-C keeps the tab |
+| [**1.0.0**](https://github.com/rthom562/ClaudeAssistant/releases/tag/v1.0.0) | First release: tabbed browser terminal, SSH, guarded `/config` access, phone support, amd64 + aarch64 |
+
+Full details: [Releases](https://github.com/rthom562/ClaudeAssistant/releases) · [Changelog](claude_code/CHANGELOG.md)
 
 ## Documentation
 
